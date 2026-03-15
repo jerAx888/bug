@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="icon" type="image/png" href="bug.png">
+  <title>bugbug — AI Repo Auditor</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh; background: #0a0f0d;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 3rem 1rem 2rem;
+      font-family: 'Space Mono', monospace; position: relative; overflow-x: hidden;
+    }
+    .grid-bg {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background-image:
+        linear-gradient(rgba(77,232,184,0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(77,232,184,0.035) 1px, transparent 1px);
+      background-size: 38px 38px;
+    }
+    .glow-tl {
+      position: fixed; width: 560px; height: 560px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(77,232,184,0.07) 0%, transparent 65%);
+      top: -80px; left: -120px; pointer-events: none; z-index: 0;
+    }
+    .glow-br {
+      position: fixed; width: 420px; height: 420px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(20,241,149,0.05) 0%, transparent 65%);
+      bottom: -60px; right: -80px; pointer-events: none; z-index: 0;
+    }
+    .page {
+      position: relative; z-index: 1;
+      display: flex; flex-direction: column; align-items: center;
+      width: 100%; max-width: 680px;
+    }
+    .logo-row {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 0.5rem;
+      animation: fadeUp 0.6s ease both;
+    }
+    .logo-text {
+      font-family: 'Syne', sans-serif; font-weight: 800;
+      font-size: 2.8rem; letter-spacing: -1.5px; color: #d8f0e8;
+    }
+    .logo-text span { color: #4de8b8; }
+    .beta {
+      background: #e0355a; color: #fff; font-size: 9px; font-weight: 700;
+      padding: 2px 7px; border-radius: 999px; align-self: flex-start;
+      margin-top: 8px; letter-spacing: 0.5px;
+    }
+    .tagline {
+      font-size: 12px; color: #4a7060; letter-spacing: 0.4px;
+      margin-bottom: 2.2rem; text-align: center;
+      animation: fadeUp 0.6s 0.1s ease both;
+    }
+    .input-wrap {
+      display: flex; align-items: center; width: 100%;
+      background: #0f1a16; border: 1px solid #1c3028;
+      border-radius: 10px; padding: 6px 6px 6px 20px;
+      margin-bottom: 1.8rem; transition: border-color 0.2s;
+      animation: fadeUp 0.6s 0.2s ease both;
+    }
+    .input-wrap:focus-within { border-color: #4de8b8; }
+    .input-wrap input {
+      flex: 1; background: transparent; border: none; outline: none;
+      color: #8ab0a0; font-size: 13px; font-family: 'Space Mono', monospace;
+    }
+    .input-wrap input::placeholder { color: #2a4a3a; }
+    .help-btn {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 1px solid #1c3028; background: transparent;
+      color: #2a4a3a; font-size: 13px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      margin-right: 6px; transition: border-color 0.2s, color 0.2s;
+    }
+    .help-btn:hover { border-color: #4de8b8; color: #4de8b8; }
+    .audit-btn {
+      background: #4de8b8; color: #041510;
+      font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px;
+      border: none; border-radius: 7px; padding: 10px 24px;
+      cursor: pointer; letter-spacing: 1px; transition: background 0.2s, transform 0.1s;
+      flex-shrink: 0;
+    }
+    .audit-btn:hover { background: #6effd0; }
+    .audit-btn:active { transform: scale(0.97); }
+    .audit-btn:disabled { background: #1a4035; color: #2e6050; cursor: not-allowed; transform: none; }
+    .result-box {
+      width: 100%; background: #0a1510; border: 1px solid #1c3028;
+      border-radius: 14px; padding: 1.5rem; display: none;
+      margin-bottom: 2rem;
+    }
+    .result-box.visible { display: block; animation: fadeUp 0.4s ease both; }
+    .result-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      margin-bottom: 1rem; padding-bottom: 0.8rem; border-bottom: 1px solid #1c3028; gap: 12px;
+    }
+    .result-repo { font-size: 11px; color: #4de8b8; word-break: break-all; line-height: 1.5; }
+    .score-pill {
+      font-family: 'Syne', sans-serif; font-weight: 700; font-size: 12px;
+      padding: 4px 14px; border-radius: 999px; flex-shrink: 0; white-space: nowrap;
+    }
+    .score-safe   { background: #4de8b818; color: #4de8b8; border: 1px solid #4de8b840; }
+    .score-warn   { background: #ffaa0018; color: #ffaa00; border: 1px solid #ffaa0040; }
+    .score-danger { background: #e0355a18; color: #e0355a; border: 1px solid #e0355a40; }
+    .result-meta {
+      display: flex; gap: 16px; margin-bottom: 1rem;
+      font-size: 11px; color: #2a5040; flex-wrap: wrap;
+    }
+    .result-meta span { display: flex; align-items: center; gap: 4px; }
+    .result-body  { font-size: 12px; color: #6aaa90; line-height: 1.9; white-space: pre-wrap; }
+    .progress-bar {
+      width: 100%; height: 2px; background: #0f2a1a;
+      border-radius: 2px; margin-bottom: 0.8rem; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; background: #4de8b8; border-radius: 2px;
+      width: 0%; transition: width 0.4s ease;
+    }
+    .status-line { font-size: 11px; color: #2a5040; margin-bottom: 0.5rem; min-height: 18px; }
+    .supported {
+      font-size: 9.5px; letter-spacing: 2.5px; color: #1e3a2a;
+      margin-bottom: 1.1rem; animation: fadeUp 0.6s 0.3s ease both;
+    }
+    .sponsors-row {
+      display: flex; align-items: center; justify-content: center;
+      gap: 2.5rem; flex-wrap: wrap; margin-bottom: 1.4rem;
+      animation: fadeUp 0.6s 0.35s ease both;
+    }
+    .sponsor-link {
+      display: flex; align-items: center; gap: 8px;
+      text-decoration: none; opacity: 0.6; transition: opacity 0.2s;
+    }
+    .sponsor-link:hover { opacity: 1; }
+    .btns-row {
+      display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap; justify-content: center;
+      margin-bottom: 1rem; animation: fadeUp 0.6s 0.4s ease both;
+    }
+    .social-btn {
+      display: inline-block; text-decoration: none;
+      border: 1px solid #1c3028; background: transparent;
+      color: #2e5040; font-size: 11px; font-family: 'Space Mono', monospace;
+      padding: 7px 16px; border-radius: 999px; cursor: pointer;
+      letter-spacing: 0.5px; transition: border-color 0.2s, color 0.2s; white-space: nowrap;
+    }
+    .social-btn:hover { border-color: #4de8b8; color: #4de8b8; }
+    .buy-btn {
+      display: inline-block; text-decoration: none;
+      background: #4de8b8; color: #041510;
+      font-family: 'Syne', sans-serif; font-weight: 700; font-size: 12px;
+      padding: 7px 20px; border-radius: 999px; cursor: pointer;
+      letter-spacing: 1px; transition: background 0.2s, transform 0.1s;
+      white-space: nowrap; border: none;
+    }
+    .buy-btn:hover { background: #6effd0; transform: scale(1.04); }
+    .ca-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 2rem; flex-wrap: wrap; justify-content: center;
+      animation: fadeUp 0.6s 0.45s ease both;
+    }
+    .ca-label { font-size: 11px; color: #2a5040; letter-spacing: 1px; }
+    .ca-address {
+      font-family: 'Space Mono', monospace; font-size: 11px;
+      color: #4de8b8; text-decoration: none;
+      border-bottom: 1px dashed #1c3028;
+      transition: color 0.2s, border-color 0.2s; letter-spacing: 0.5px;
+    }
+    .ca-address:hover { color: #6effd0; border-color: #4de8b8; }
+    .ca-copy {
+      background: transparent; border: 1px solid #1c3028;
+      color: #2e5040; font-size: 13px; cursor: pointer;
+      width: 26px; height: 26px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      transition: border-color 0.2s, color 0.2s; flex-shrink: 0;
+    }
+    .ca-copy:hover { border-color: #4de8b8; color: #4de8b8; }
+    .ca-copy.copied { border-color: #4de8b8; color: #4de8b8; }
+    .footer {
+      font-size: 11px; color: #1e3028; letter-spacing: 0.3px; text-align: center;
+      animation: fadeUp 0.6s 0.5s ease both;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .loading-dots::after { content: '.'; animation: dots 1.2s steps(3,end) infinite; }
+    @keyframes dots { 0%{content:'.'} 33%{content:'..'} 66%,100%{content:'...'} }
+  </style>
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="glow-tl"></div>
+  <div class="glow-br"></div>
+
+  <div class="page">
+
+    <div class="logo-row">
+      <svg width="48" height="48" viewBox="0 0 80 80" fill="none">
+        <line x1="30" y1="18" x2="20" y2="8" stroke="#4de8b8" stroke-width="2.5" stroke-linecap="round"/>
+        <line x1="50" y1="18" x2="60" y2="8" stroke="#4de8b8" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="19" cy="7" r="3" fill="#4de8b8"/>
+        <circle cx="61" cy="7" r="3" fill="#4de8b8"/>
+        <ellipse cx="40" cy="50" rx="22" ry="26" fill="#0f2a1a" stroke="#4de8b8" stroke-width="1.5"/>
+        <circle cx="40" cy="26" r="14" fill="#0f2a1a" stroke="#4de8b8" stroke-width="1.5"/>
+        <circle cx="34" cy="24" r="4" fill="#4de8b8"/>
+        <circle cx="46" cy="24" r="4" fill="#4de8b8"/>
+        <circle cx="35" cy="23" r="1.5" fill="#0a1a10"/>
+        <circle cx="47" cy="23" r="1.5" fill="#0a1a10"/>
+        <line x1="18" y1="46" x2="62" y2="46" stroke="#4de8b8" stroke-width="1" opacity="0.4"/>
+        <line x1="18" y1="58" x2="62" y2="58" stroke="#4de8b8" stroke-width="1" opacity="0.4"/>
+        <line x1="18" y1="44" x2="6"  y2="38" stroke="#4de8b8" stroke-width="2" stroke-linecap="round"/>
+        <line x1="18" y1="52" x2="6"  y2="52" stroke="#4de8b8" stroke-width="2" stroke-linecap="round"/>
+        <line x1="18" y1="60" x2="6"  y2="66" stroke="#4de8b8" stroke-width="2" stroke-linecap="round"/>
+        <line x1="62" y1="44" x2="74" y2="38" stroke="#4de8b8" stroke-width="2" stroke-linecap="round"/>
+        <line x1="62" y1="52" x2="74" y2="52" stroke="#4de8b8" stroke-width="2" stroke-linecap="round"/>
+        <line x1="62" y1="60" x2="74" y2="66" stroke="#4de8b8" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span class="logo-text">bug<span>bug</span></span>
+      <span class="beta">BETA</span>
+    </div>
+
+    <p class="tagline">Find vulnerabilities in seconds. Ship safely.</p>
+
+    <div class="input-wrap">
+      <input type="text" id="repoInput" placeholder="https://github.com/org/repo" autocomplete="off"/>
+      <button class="help-btn" title="Enter a GitHub repo URL">?</button>
+      <button class="audit-btn" id="auditBtn" onclick="runAudit()">AUDIT</button>
+    </div>
+
+    <div class="result-box" id="resultBox">
+      <div class="result-header">
+        <span class="result-repo" id="resultRepo"></span>
+        <span class="score-pill" id="scorePill"></span>
+      </div>
+      <div class="result-meta" id="resultMeta"></div>
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="status-line" id="statusLine"></div>
+      <div class="result-body" id="resultBody"></div>
+    </div>
+
+    <p class="supported">SUPPORTED BY</p>
+    <div class="sponsors-row">
+      <a class="sponsor-link" href="https://accretion.xyz/" target="_blank" rel="noopener">
+        <svg width="34" height="34" viewBox="0 0 80 80" fill="none">
+          <defs><radialGradient id="ag" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ff6a00"/><stop offset="60%" stop-color="#c84400"/><stop offset="100%" stop-color="#7a1a00"/></radialGradient></defs>
+          <ellipse cx="40" cy="40" rx="36" ry="10" stroke="#c85500" stroke-width="2" fill="none" opacity="0.6"/>
+          <ellipse cx="40" cy="40" rx="28" ry="7" stroke="#e06020" stroke-width="1.5" fill="none" opacity="0.5"/>
+          <circle cx="40" cy="40" r="14" fill="url(#ag)"/>
+          <ellipse cx="35" cy="34" rx="5" ry="3" fill="#ff9944" opacity="0.45"/>
+          <circle cx="40" cy="40" r="5" fill="#ff9944" opacity="0.7"/>
+        </svg>
+        <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#c8b090;letter-spacing:3px;">ACCRETION</span>
+      </a>
+      <a class="sponsor-link" href="https://mtndao.com/" target="_blank" rel="noopener">
+        <svg width="34" height="34" viewBox="0 0 80 80" fill="none">
+          <defs>
+            <linearGradient id="mg1" x1="10" y1="62" x2="44" y2="14" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#3a3a6a"/><stop offset="100%" stop-color="#8888cc"/></linearGradient>
+            <linearGradient id="mg2" x1="30" y1="62" x2="66" y2="16" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#555588"/><stop offset="100%" stop-color="#aaaadd"/></linearGradient>
+          </defs>
+          <polygon points="10,62 40,14 55,38 48,38 40,24 18,62" fill="url(#mg1)"/>
+          <polygon points="28,62 55,18 72,62" fill="url(#mg2)"/>
+          <polygon points="40,14 34,28 46,28" fill="#ccccee" opacity="0.7"/>
+          <polygon points="55,18 50,30 60,30" fill="#ddddff" opacity="0.8"/>
+        </svg>
+        <span style="font-family:'Syne',sans-serif;font-weight:900;font-size:16px;color:#aaaacc;letter-spacing:1px;">MTN</span>
+        <span style="font-family:'Syne',sans-serif;font-weight:400;font-size:13px;color:#6666aa;letter-spacing:1px;">dao</span>
+      </a>
+    </div>
+
+    <div class="btns-row">
+      <a class="social-btn" href="https://x.com/hackhackai" target="_blank" rel="noopener">✕ FOLLOW US ON X</a>
+      <a class="social-btn" href="https://x.com/sadadadad" target="_blank" rel="noopener">🐛 JOIN COMMUNITY</a>
+      <a class="buy-btn" href="https://pump.fun" target="_blank" rel="noopener">🚀 BUY</a>
+    </div>
+
+    <div class="ca-row">
+      <span class="ca-label">CA:</span>
+      <a class="ca-address" href="https://pump.fun/coin/asdadadada1231313" target="_blank" rel="noopener">asdadadada1231313</a>
+      <button class="ca-copy" onclick="copyCA()" id="copyBtn" title="Copy CA">⎘</button>
+    </div>
+
+    <p class="footer">© Decoy Research Incorporated 2026, all rights reserved.</p>
+
+  </div>
+
+  <script>
+    /* ── Copy CA ── */
+    function copyCA() {
+      const ca = 'asdadadada1231313';
+      const btn = document.getElementById('copyBtn');
+      navigator.clipboard.writeText(ca).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = ca; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+      });
+      btn.textContent = '✓'; btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = '⎘'; btn.classList.remove('copied'); }, 2000);
+    }
+
+    /* ── GitHub API helpers ── */
+    async function ghFetch(url) {
+      const res = await fetch(url, { headers: { 'Accept': 'application/vnd.github.v3+json' } });
+      if (!res.ok) throw new Error('GitHub API error: ' + res.status);
+      return res.json();
+    }
+
+    function parseGitHubURL(url) {
+      const clean = url.replace(/\/$/, '').replace('https://github.com/', '').replace('http://github.com/', '');
+      const parts = clean.split('/');
+      return { owner: parts[0], repo: parts[1] };
+    }
+
+    /* ── Real scanner ── */
+    async function scanRepo(owner, repo, setStatus, setProgress) {
+
+      const findings = [];
+      const repoBase = `https://api.github.com/repos/${owner}/${repo}`;
+
+      /* Step 1 — Repo metadata */
+      setStatus('Fetching repository info...'); setProgress(10);
+      const repoInfo = await ghFetch(repoBase);
+
+      /* Step 2 — List root files */
+      setStatus('Reading file structure...'); setProgress(20);
+      let rootFiles = [];
+      try { rootFiles = await ghFetch(`${repoBase}/contents/`); } catch(e) {}
+
+      const fileNames = rootFiles.map(f => f.name.toLowerCase());
+
+      /* Step 3 — Check for missing important files */
+      setProgress(30); setStatus('Checking security files...');
+      if (!fileNames.includes('security.md') && !fileNames.includes('.github'))
+        findings.push({l:'INFO', t:'No SECURITY.md found', d:'Repository lacks a security policy file. Add SECURITY.md to define responsible disclosure procedures.'});
+      if (!fileNames.includes('license') && !fileNames.includes('license.md') && !fileNames.includes('license.txt'))
+        findings.push({l:'INFO', t:'No LICENSE file', d:'No LICENSE file found. Contributors and users have no clarity on usage rights.'});
+      if (!fileNames.includes('.env.example') && !fileNames.includes('.env.sample'))
+        findings.push({l:'INFO', t:'No .env.example', d:'No .env.example found. Developers may accidentally commit real .env files with secrets.'});
+
+      /* Step 4 — Check .gitignore */
+      setProgress(40); setStatus('Scanning .gitignore...');
+      if (fileNames.includes('.gitignore')) {
+        try {
+          const gi = await ghFetch(`${repoBase}/contents/.gitignore`);
+          const giContent = atob(gi.content.replace(/\n/g,'')).toLowerCase();
+          if (!giContent.includes('.env'))
+            findings.push({l:'WARN', t:'.env not in .gitignore', d:'The .env file is not listed in .gitignore — secrets and API keys could be accidentally committed to the repo.'});
+          if (!giContent.includes('node_modules') && fileNames.includes('package.json'))
+            findings.push({l:'WARN', t:'node_modules not in .gitignore', d:'node_modules folder is not gitignored. This will bloat your repository with thousands of unnecessary files.'});
+        } catch(e) {}
+      } else {
+        findings.push({l:'WARN', t:'No .gitignore file', d:'No .gitignore found. Sensitive files like .env, node_modules, and build outputs may be accidentally committed.'});
+      }
+
+      /* Step 5 — package.json scan */
+      setProgress(50); setStatus('Auditing dependencies...');
+      if (fileNames.includes('package.json')) {
+        try {
+          const pkgFile = await ghFetch(`${repoBase}/contents/package.json`);
+          const pkg = JSON.parse(atob(pkgFile.content.replace(/\n/g,'')));
+          const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+          /* Known risky/outdated packages */
+          const riskyPkgs = {
+            'event-stream': 'CRITICAL',
+            'flatmap-stream': 'CRITICAL',
+            'node-ipc': 'CRITICAL',
+            'colors': 'WARN',
+            'faker': 'WARN',
+            'lodash': 'INFO',
+            'moment': 'INFO',
+            'request': 'WARN',
+            'crypto': 'INFO',
+          };
+
+          let foundRisky = 0;
+          for (const [dep] of Object.entries(allDeps)) {
+            if (riskyPkgs[dep]) {
+              foundRisky++;
+              const lvl = riskyPkgs[dep];
+              findings.push({l: lvl, t: `Risky dependency: ${dep}`, d: `Package "${dep}" has known security issues or is deprecated. Consider replacing with a safer alternative.`});
+            }
+          }
+
+          const depCount = Object.keys(allDeps).length;
+          if (depCount > 50)
+            findings.push({l:'WARN', t:`Large dependency tree (${depCount} packages)`, d:`${depCount} dependencies detected. Large dependency trees increase supply chain attack surface. Audit and prune unused packages.`});
+          else if (depCount > 20)
+            findings.push({l:'INFO', t:`${depCount} dependencies found`, d:`Moderate dependency count. Recommend running "npm audit" regularly to check for known vulnerabilities.`});
+
+          if (pkg.scripts) {
+            const scripts = JSON.stringify(pkg.scripts).toLowerCase();
+            if (scripts.includes('curl') || scripts.includes('wget') || scripts.includes('bash'))
+              findings.push({l:'CRITICAL', t:'Dangerous script detected', d:'package.json scripts contain curl/wget/bash commands. This can execute arbitrary remote code during npm install — a common supply chain attack vector.'});
+          }
+
+          if (!pkg.engines)
+            findings.push({l:'INFO', t:'No Node.js version specified', d:'No "engines" field in package.json. Specifying Node.js version prevents compatibility issues across environments.'});
+
+        } catch(e) {
+          findings.push({l:'INFO', t:'Could not parse package.json', d:'package.json exists but could not be fully parsed. Manually review dependencies for known vulnerabilities.'});
+        }
+      }
+
+      /* Step 6 — Scan source code files for patterns */
+      setProgress(65); setStatus('Scanning source code for vulnerabilities...');
+      const codeExtensions = ['.js','.ts','.py','.sol','.rs','.go','.jsx','.tsx'];
+      const codeFiles = rootFiles.filter(f => codeExtensions.some(ext => f.name.endsWith(ext)));
+
+      let hardcodedSecrets = false;
+      let evalUsage = false;
+      let httpUsage = false;
+      let sqlPatterns = false;
+      let privateKeyPattern = false;
+      let scannedFiles = 0;
+
+      for (const file of codeFiles.slice(0, 8)) {
+        try {
+          const fileData = await ghFetch(`${repoBase}/contents/${file.name}`);
+          const code = atob(fileData.content.replace(/\n/g,''));
+          scannedFiles++;
+
+          if (/(?:api_key|apikey|secret|password|passwd|private_key)\s*=\s*['"][^'"]{8,}/i.test(code))
+            hardcodedSecrets = true;
+          if (/\beval\s*\(/.test(code)) evalUsage = true;
+          if (/http:\/\/(?!localhost|127\.0\.0\.1)/.test(code)) httpUsage = true;
+          if (/(?:SELECT|INSERT|UPDATE|DELETE).*\+\s*(?:req|input|user|param)/i.test(code)) sqlPatterns = true;
+          if (/(?:privateKey|private_key|secretKey)\s*[:=]\s*['"][a-zA-Z0-9+/]{20,}/.test(code)) privateKeyPattern = true;
+        } catch(e) {}
+      }
+
+      if (hardcodedSecrets)
+        findings.push({l:'CRITICAL', t:'Hardcoded secrets detected', d:'Possible hardcoded API keys, passwords, or secrets found in source files. Rotate all credentials immediately and use environment variables instead.'});
+      if (privateKeyPattern)
+        findings.push({l:'CRITICAL', t:'Private key in source code', d:'A pattern matching a private key or secret key was found hardcoded in source files. This is a critical security risk — remove immediately.'});
+      if (evalUsage)
+        findings.push({l:'WARN', t:'eval() usage detected', d:'eval() function found in code. eval() executes arbitrary strings as code and is a major security risk if user input can reach it.'});
+      if (httpUsage)
+        findings.push({l:'WARN', t:'HTTP (non-HTTPS) requests', d:'Non-HTTPS URLs found in code. Unencrypted HTTP requests expose data to man-in-the-middle attacks. Use HTTPS for all external requests.'});
+      if (sqlPatterns)
+        findings.push({l:'CRITICAL', t:'Potential SQL injection', d:'String concatenation in SQL-like queries detected. This pattern is a classic SQL injection vulnerability. Use parameterized queries instead.'});
+
+      /* Step 7 — Check repo health */
+      setProgress(80); setStatus('Checking repository health...');
+      if (repoInfo.open_issues_count > 100)
+        findings.push({l:'WARN', t:`${repoInfo.open_issues_count} open issues`, d:`High number of open issues (${repoInfo.open_issues_count}) may indicate unmaintained code or unresolved security reports.`});
+
+      const lastPush = new Date(repoInfo.pushed_at);
+      const monthsAgo = (Date.now() - lastPush) / (1000 * 60 * 60 * 24 * 30);
+      if (monthsAgo > 12)
+        findings.push({l:'WARN', t:`Repo inactive for ${Math.floor(monthsAgo)} months`, d:`Last commit was ${Math.floor(monthsAgo)} months ago. Unmaintained repos don't receive security patches and may have unaddressed vulnerabilities.`});
+      else if (monthsAgo > 6)
+        findings.push({l:'INFO', t:`Last commit ${Math.floor(monthsAgo)} months ago`, d:'Repository has not been updated recently. Check if the project is still actively maintained.'});
+
+      if (!repoInfo.description)
+        findings.push({l:'INFO', t:'No repository description', d:'Repository has no description. Adding one helps users understand the project\'s purpose and security scope.'});
+
+      /* Step 8 — Check for test files */
+      setProgress(88); setStatus('Checking test coverage...');
+      const hasTests = fileNames.some(f => f.includes('test') || f.includes('spec') || f === '__tests__');
+      if (!hasTests)
+        findings.push({l:'INFO', t:'No test directory found', d:'No test files or test directory detected at root level. Untested code paths are harder to audit and may contain hidden bugs.'});
+
+      /* Step 9 — Check workflows */
+      setProgress(93); setStatus('Checking CI/CD security...');
+      try {
+        const workflows = await ghFetch(`${repoBase}/contents/.github/workflows`);
+        const hasSecurityScan = workflows.some(w =>
+          w.name.toLowerCase().includes('security') ||
+          w.name.toLowerCase().includes('codeql') ||
+          w.name.toLowerCase().includes('audit')
+        );
+        if (!hasSecurityScan)
+          findings.push({l:'INFO', t:'No security CI/CD workflow', d:'No automated security scanning workflow detected in .github/workflows. Consider adding CodeQL or npm audit to your CI pipeline.'});
+      } catch(e) {
+        findings.push({l:'INFO', t:'No GitHub Actions workflows', d:'No CI/CD workflows found. Automated testing and security scanning pipelines are recommended for production code.'});
+      }
+
+      setProgress(100); setStatus('');
+
+      /* ── Score calculation ── */
+      const criticals = findings.filter(f => f.l === 'CRITICAL').length;
+      const warns     = findings.filter(f => f.l === 'WARN').length;
+      let score = 'SAFE';
+      if (criticals >= 1) score = 'DANGER';
+      else if (warns >= 2) score = 'WARNING';
+      else if (warns >= 1) score = 'WARNING';
+
+      return { score, findings, repoInfo, scannedFiles };
+    }
+
+    /* ── Main audit runner ── */
+    async function runAudit() {
+      const input = document.getElementById('repoInput').value.trim();
+      if (!input) { alert('Please paste a GitHub repo URL first!'); return; }
+      if (!input.includes('github.com')) { alert('Please enter a valid GitHub URL\ne.g. https://github.com/org/repo'); return; }
+
+      const { owner, repo } = parseGitHubURL(input);
+
+
+      const btn        = document.getElementById('auditBtn');
+      const resultBox  = document.getElementById('resultBox');
+      const resultBody = document.getElementById('resultBody');
+      const resultRepo = document.getElementById('resultRepo');
+      const resultMeta = document.getElementById('resultMeta');
+      const scorePill  = document.getElementById('scorePill');
+      const progressFill = document.getElementById('progressFill');
+      const statusLine = document.getElementById('statusLine');
+
+      btn.disabled = true; btn.textContent = 'AUDITING...';
+      resultBox.classList.add('visible');
+      resultRepo.textContent = input;
+      scorePill.textContent = ''; scorePill.className = 'score-pill';
+      resultMeta.innerHTML = '';
+      resultBody.innerHTML = '<span class="loading-dots">Connecting to GitHub</span>';
+      progressFill.style.width = '0%';
+      statusLine.textContent = '';
+
+      const setStatus   = t => { statusLine.textContent = t; };
+      const setProgress = p => { progressFill.style.width = p + '%'; };
+
+      try {
+        const { score, findings, repoInfo, scannedFiles } = await scanRepo(owner, repo, setStatus, setProgress);
+
+        const cls = { SAFE:'score-safe', WARNING:'score-warn', DANGER:'score-danger' };
+        const icon = { CRITICAL:'🔴', WARN:'🟡', INFO:'🔵' };
+
+        scorePill.textContent = score;
+        scorePill.className = 'score-pill ' + (cls[score] || 'score-warn');
+
+        const stars   = repoInfo.stargazers_count.toLocaleString();
+        const lang    = repoInfo.language || 'Unknown';
+        const updated = new Date(repoInfo.pushed_at).toLocaleDateString();
+        resultMeta.innerHTML = `
+          <span>⭐ ${stars} stars</span>
+          <span>🔤 ${lang}</span>
+          <span>📁 ${scannedFiles} files scanned</span>
+          <span>🕒 Last updated ${updated}</span>
+        `;
+
+        const criticals = findings.filter(f=>f.l==='CRITICAL').length;
+        const warns     = findings.filter(f=>f.l==='WARN').length;
+        const infos     = findings.filter(f=>f.l==='INFO').length;
+
+        let summary = '';
+        if (score === 'SAFE')
+          summary = `${repo} passed the security audit with no critical issues. The codebase appears well-structured and follows good security practices.`;
+        else if (score === 'WARNING')
+          summary = `${repo} has ${warns} warning(s) that should be addressed before production deployment. No critical vulnerabilities found but improvements are recommended.`;
+        else
+          summary = `${repo} has ${criticals} critical vulnerability(s) that require immediate attention. Do NOT deploy to production without fixing these issues.`;
+
+        let out = summary + '\n\n';
+        out += `FINDINGS  (${criticals} critical · ${warns} warnings · ${infos} info)\n`;
+        out += '────────────────────────────\n';
+
+        if (findings.length === 0) {
+          out += '✅ No issues found! This repo looks clean.\n';
+        } else {
+          findings.forEach(f => {
+            out += `${icon[f.l]||'🔵'} [${f.l}] ${f.t}\n   ${f.d}\n\n`;
+          });
+        }
+
+        out += '────────────────────────────\n';
+        if (score === 'SAFE')
+          out += '💡 Maintain current practices and re-audit periodically as the codebase evolves.';
+        else if (score === 'WARNING')
+          out += '💡 Address all WARN-level findings before production and consider adding automated security scanning to CI/CD.';
+        else
+          out += '💡 Halt deployment immediately. Fix all CRITICAL findings and engage a professional security auditor.';
+
+        resultBody.textContent = out;
+
+      } catch(err) {
+        progressFill.style.width = '0%';
+        statusLine.textContent = '';
+        scorePill.textContent = 'ERROR';
+        scorePill.className = 'score-pill score-warn';
+        if (err.message.includes('404'))
+          resultBody.textContent = '❌ Repository not found. Make sure the repo is public and the URL is correct.';
+        else if (err.message.includes('403') || err.message.includes('429'))
+          resultBody.textContent = '⚠️ GitHub API rate limit reached.\n\nYou can make 60 free requests per hour.\nWait a few minutes and try again, or try a different repo.';
+        else
+          resultBody.textContent = '❌ Scan failed: ' + err.message + '\n\nMake sure the repository is public and try again.';
+      }
+
+      btn.disabled = false; btn.textContent = 'AUDIT';
+    }
+
+    document.getElementById('repoInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runAudit();
+    });
+  </script>
+</body>
+</html>
